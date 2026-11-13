@@ -1,156 +1,181 @@
 ---
-title: "Report"
-author: "Names"
-format: html
-bibliography: Visual Communication and Data Storytelling.json
+title: "International students are not spread evenly across Germany"
+subtitle: "Students with foreign nationality by federal state and institution, WS 2025/26"
+author: "Christina Tannous, Judith Rotich"
+format:
+  html:
+    code-fold: true
+    fig-width: 8
+    fig-height: 5.5
+execute:
+  warning: false
+  message: false
 ---
 
-> The file `index.qmd` (where this page is built from) and `presentation.qmd` are template for your **data story**. The **Presentation** (`presentation.qmd`) is an HTML slide-deck in the format Revealjs which you can build with [Quarto > Presentations > Revealjs](https://quarto.org/docs/presentations/revealjs/). The **Report** (`index.qmd`) accompanies and in some sense repeats the Data Story in pyramid format (see @Dykes2019EffectiveDataStorytelling). That is like a newspaper article coming quickly to the main point and then underpins it with additional information and context. *When you use `index.qmd` as template, remove this text.*
-
-[Slide-deck of the data story](presentation.qmd)
-
 ```{r}
-#| label: packages
-#| message: false
+#| label: setup
+# install.packages(c("readxl","dplyr","ggplot2","sf","giscoR","scales","ggrepel","stringr"))
+library(readxl); library(dplyr); library(ggplot2); library(sf)
+library(giscoR); library(scales); library(ggrepel); library(stringr)
 
-# These are the packages used in the report
-library(tidyverse)
+# Excel file lives in the data/ folder
+f <- "data/destatis_21311-0002_clean.xlsx"
+
+state_en <- c(BW="Baden-Württemberg", BY="Bavaria", BE="Berlin", BB="Brandenburg",
+              HB="Bremen", HH="Hamburg", HE="Hesse", MV="Mecklenburg-Vorpommern",
+              NI="Lower Saxony", NW="North Rhine-Westphalia", RP="Rhineland-Palatinate",
+              SL="Saarland", SN="Saxony", ST="Saxony-Anhalt",
+              SH="Schleswig-Holstein", TH="Thuringia")
+
+# NUTS1 codes for the 16 Länder (used to join the map geometry)
+nuts <- c(BW="DE1", BY="DE2", BE="DE3", BB="DE4", HB="DE5", HH="DE6", HE="DE7",
+          MV="DE8", NI="DE9", NW="DEA", RP="DEB", SL="DEC", SN="DED", ST="DEE",
+          SH="DEF", TH="DEG")
+
+st <- read_excel(f, sheet = "States") |>
+  filter(!is.na(`State code`)) |>
+  transmute(code = `State code`, state = state_en[`State code`],
+            foreign = `Foreign students`, total = `All students`,
+            share = `Foreign share (%)`,
+            share_excl_distance = `Foreign share excl. distance providers (%)`)
+
+inst_all <- read_excel(f, sheet = "Institutions") |>
+  transmute(name = `Institution / campus (as in Destatis)`,
+            code = `State code`,
+            type = `Institution type (my classification)`,
+            distance = `Distance-learning provider (my classification)`,
+            foreign = `Foreign total`, total = `All students`,
+            share = `Foreign share (%)`)
+
+inst <- filter(inst_all, total >= 1000)          # avoids tiny-denominator extremes
+nat  <- sum(st$foreign) / sum(st$total) * 100    # national share, ~18.0 %
 ```
 
+## The question
 
-*The following is a potential structure of your report.*
+Germany had **`r format(sum(st$foreign), big.mark = ",")`** students with foreign
+nationality in WS 2025/26, **`r round(nat, 1)`%** of all students. But how evenly
+are they spread across states and institutions?
 
-*The following headlines are suggestions only.*
-
-## Outline
-
-*What questions will the report address and why?*
-
-*How can data be accessed. Code for loading.*
-
-*Information how data is collected. Who collects data.*
-
-*Be very brief here! Come to the main point fast. If necessary provide and refer to an appendix. You can also use footnotes.^[This is a footnote, which can be used for more information which may distract from coming to the main point fast.]*
-
-Your report shall follow an "inverted pyramid" story format [see @Dykes2019EffectiveDataStorytelling] .
-
-Remove all this text and put your content.^[Using this template is not mandatory.]
-
-:::{.callout-note}
-Optional: Publish your Data Story using [Quarto > Publish > GitHub-Pages](https://quarto.org/docs/publishing/github-pages.html).
-:::
-
-
-## Main Insight *Better give a more substantial title!*
-
-This should present your main point visually with one (or more) figures and text which explains and interprets it as part of your data story.  
-
-*In the report code should be there, but folded in.*
+## 1. The map: a range from 10.8% to 27.8%
 
 ```{r}
-#| label: fig-mainvisualization
-#| fig-cap: "*The figure shows bubble plots in Hans Rosling's style. But this is just a placeholder.*"
-#| warning: false # Use this only when you checked that it is OK. It is not a good default for every figure cell.
- 
-df <- read_csv("data/country_panel_wdi_who.csv", show_col_types = FALSE)
+#| label: fig-map
+#| fig-cap: "Share of students with foreign nationality by federal state, WS 2025/26. Source: Destatis 21311-0002; own calculation."
+geo <- gisco_get_nuts(year = "2021", nuts_level = 1, country = "DE", resolution = "10") |>
+  left_join(mutate(st, NUTS_ID = nuts[code]), by = "NUTS_ID")
 
-df |>
-  filter(year %in% c(1978, 1998, 2018)) |>
-  ggplot(aes(
-    x = gdp_per_capita_usd,
-    y = life_expectancy_years,
-    size = total_population,
-    color = region
-  )) +
-  geom_point(alpha = 0.8) +
-  scale_x_log10(breaks = c(300, 3000, 30000)) +
-  scale_y_continuous(limits = c(40, 87)) +
-  scale_size_area(max_size = 15) +
-  scale_color_brewer(palette = "Dark2") +
-  facet_wrap(~year) +
-  labs(x = "GDP per capita (USD)", y = "Life expectancy (years)") +
-  theme_minimal() +
-  theme(legend.position = "bottom", panel.border = element_rect()) +
-  guides(
-    size = "none",
-    color = guide_legend(ncol = 4, override.aes = list(size = 4), title = NULL)
-  )
+ggplot(geo) +
+  geom_sf(aes(fill = share), colour = "white", linewidth = .4) +
+  geom_sf_text(aes(label = paste0(round(share, 1), "%")), size = 3, colour = "white",
+               fontface = "bold", check_overlap = TRUE) +
+  scale_fill_viridis_c(name = "% foreign\nnationality", option = "mako",
+                       direction = -1, end = .9) +
+  theme_void(base_size = 12)
 ```
 
-Label your Figures using `label: fig-something`, then you can create cross references like @fig-mainvisualization. It is a standard practice in research articles to refer to Figures in this way. For example: @fig-lifeexpectancy shows the life expectancy for the countries with a population larger than more than 20 million. 
+**How to read it.** The share of students with foreign nationality ranges from 10.8% in Schleswig-Holstein to 27.8% in Brandenburg, with Germany overall at 18.0%. Berlin (25.9%) and Bavaria (22.1%) are also well above average, while Mecklenburg-Vorpommern (11.5%) and Baden-Württemberg (14.7%) are below it. The map shows where the share is high or low, not why.
 
-*Refer here to*
+## 2. Share versus absolute numbers
 
-- *Additional visualizations and analysis below*
-- *Accompnaying Dashboards*
-- *...*
-
-## Additional insights
-
-*Better give a more substantial title.*
+Large states have many international students simply because they have many
+students overall. Share and count answer different questions.
 
 ```{r}
-#| label: fig-lifeexpectancy
-#| fig-height: 7
-#| fig-cap: "*This is just a placeholder.*"
+#| label: fig-states
+#| fig-cap: "Left: share of students with foreign nationality. Right: number of students. Dashed line: national share."
+#| fig-height: 6
+st_long <- st |>
+  mutate(state = reorder(state, share)) |>
+  transmute(state, `Share of students (%)` = share, `Students with foreign nationality` = foreign) |>
+  tidyr::pivot_longer(-state)
 
-df |>
-  filter(year == 2016, total_population > 20000000) |>
-  summarize(
-    mean_var = mean(life_expectancy_years),
-    .by = c(country_name, region)
-  ) |>
-  arrange(mean_var) |>
-  ggplot(aes(
-    x = mean_var,
-    y = country_name |> fct_inorder(),
-    fill = region
-  )) +
-  geom_col() +
-  labs(
-    title = "Life Expectancy, Countries with more than 20 Mio.",
-    x = "",
-    y = "",
-    fill = ""
-  ) +
-  scale_fill_brewer(palette = "Dark2") +
-  theme_minimal()
+ggplot(st_long, aes(value, state, fill = name)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~name, scales = "free_x") +
+  scale_x_continuous(labels = label_comma()) +
+  scale_fill_manual(values = c("#c2410c", "#0b6e6e")) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank())
 ```
 
-### You may have subsections here or elsewhere
+**How to read it.** Share and size give different rankings. North Rhine-Westphalia has the most students with foreign nationality (113,075) but only 15.9% of its students, because it has so many students overall. Brandenburg has just 15,685 but the highest share. The left panel shows how concentrated a state's student body is; the right panel shows how many students are involved.
 
-### However, subsections usually make sense when there is more than one
+## 3. Institutions vary more than states
 
-## Conclusion
+```{r}
+#| label: fig-scatter
+#| fig-cap: "Institutions and campuses with at least 1,000 students. Point size = number of students with foreign nationality."
+labs_df <- inst |>
+  filter(str_detect(name, "Technische Hochschule Aachen|Garching|Gisma|Fernuniversität Hagen|IU Int. H Erfurt in Erfurt|Constructor|Rhein-Waal in Kleve")) |>
+  mutate(label = str_trunc(name, 28))
 
-*Topics like: What have we learned? How does it fit in or help in broader contexts? Any actions recommended? What remains open? What are next steps? Which of these questions are most relevant depends on the type of your project.*
+ggplot(inst, aes(total, share, size = foreign)) +
+  geom_point(alpha = .4, colour = "#0b6e6e") +
+  geom_hline(yintercept = nat, linetype = "dashed", colour = "#c2410c") +
+  annotate("text", x = 1e5, y = nat + 3, label = paste0("Germany ", round(nat, 1), "%"),
+           colour = "#c2410c", hjust = 1, size = 3.5) +
+  geom_text_repel(data = labs_df, aes(label = label), size = 3, show.legend = FALSE) +
+  scale_x_log10(labels = label_comma()) +
+  scale_size_area(max_size = 9, guide = "none") +
+  labs(x = "All students at the institution (log scale)",
+       y = "% with foreign nationality") +
+  theme_minimal(base_size = 12)
+```
 
-## Interactive Visualization / Data Dashboard {.appendix}
+**How to read it.** Each dot is an institution or campus with at least 1,000 students. Shares span 0% to 99%, with a median of 14% and the middle 80% between 3.7% and 35.7%, a far wider spread than between states. The extremes are mostly small, specialised or international-by-design institutions. Large technical universities (RWTH Aachen 35.7%, TU Munich Garching 45.7%) combine size with high shares.
 
-*Either have this here or on another webpage (new quarto file).*
+## 4. Two rankings, two different lists
 
-*Interactive visualizations may also appear above.* 
+```{r}
+#| label: fig-rank
+#| fig-cap: "Top 10 institutions by share (left, at least 1,000 students) and by number (right)."
+#| fig-height: 5
+top_share <- inst |> slice_max(share, n = 10) |> mutate(rank = "Highest share (%)", value = share)
+top_n     <- inst |> slice_max(foreign, n = 10) |> mutate(rank = "Most students with foreign nationality", value = foreign)
 
-*The focus here is to provide the reader with sensible ways to explore the data independently. You have to think about what could be of interest.*
+bind_rows(top_share, top_n) |>
+  mutate(name = str_trunc(name, 38), name = tidytext::reorder_within(name, value, rank)) |>
+  ggplot(aes(value, name, fill = rank)) +
+  geom_col(show.legend = FALSE) +
+  tidytext::scale_y_reordered() +
+  scale_fill_manual(values = c("#0b6e6e", "#c2410c")) +
+  facet_wrap(~rank, scales = "free") +
+  labs(x = NULL, y = NULL) +
+  theme_minimal(base_size = 11)
+```
 
+**How to read it.** The two lists barely overlap. The highest shares belong to small institutions such as Gisma and the University of Europe in Potsdam (about 99%), Constructor University Bremen (95%) and the Deggendorf Rottal-Inn campus (97.5%). The highest numbers belong to large institutions: IU Erfurt (16,595), RWTH Aachen (15,939), TU Berlin (10,424) and TU Munich Garching (10,288). A ranking by share alone says little about how many students are affected.
 
+## Sensitivity: distance-learning providers
 
+IU Internationale Hochschule (a distance provider registered in Erfurt, 108,463
+students) pulls Thuringia's share down. Excluding distance providers:
 
-## Data Source {.appendix}
+```{r}
+#| label: fig-distance
+#| fig-cap: "State shares with and without distance-learning providers (my classification)."
+st |>
+  mutate(state = reorder(state, share)) |>
+  ggplot(aes(y = state)) +
+  geom_segment(aes(x = share, xend = share_excl_distance, yend = state), colour = "grey60") +
+  geom_point(aes(x = share), colour = "grey40", size = 2.5) +
+  geom_point(aes(x = share_excl_distance), colour = "#0b6e6e", size = 2.5) +
+  labs(x = "% foreign nationality (grey: all, teal: excl. distance providers)", y = NULL) +
+  theme_minimal(base_size = 12)
+```
 
-*If specific information and details about the data source would be too long in the "Outline" section, put it in an appendix section.* 
+**How to read it.** Distance providers can shift a state's share noticeably. IU Internationale Hochschule, registered in Erfurt, has 108,463 students, and its share of foreign students is below average. Excluding distance providers, Thuringia rises from 17.4% to 22.1%, Bremen from 22.1% to 24.6%, and the national share from 18.0% to 18.5%. The story should state which version it uses.
 
-## Other appendix sections {.appendix}
+## Caveats
 
-*Do the same with other text which distracts the reading of the main text.*
+- Nationality only: the table does not separate students who obtained their
+  entrance qualification abroad (Bildungsausländer).
+- State is not in the source file; it was assigned from the file's row order
+  and should be checked against table 21311-0005.
+- Rows are campuses, not whole universities.
+- Single semester (WS 2025/26): no time trend without further tables.
 
-## References {.unnumbered .appendix}
-
-*This is compiled automatically from all citations. Here, just one reference was cited. It has been cited in the text as `@Dykes2019EffectiveDataStorytelling`, and this cite-key refers to the cite-keys in the Zotero Group <https://www.zotero.org/groups/6686224/visual_communication_and_data_storytelling/library> which the instructor compiled.*
-
-*See more details in the [Bibliography Example](bibliography-example.qmd).* 
-
----
-
-::: {#refs}
-:::
+*Source: Statistisches Bundesamt (Destatis), table 21311-0002, retrieved
+05.11.2026. © Destatis, 2026.*

@@ -1,6 +1,6 @@
 ---
-title: "Scrollytelling"
-author: "Names"
+title: "Opportunities in Germany"
+author: "Christina Tannous and Judith Rotich"
 format: closeread-html
 ---
 
